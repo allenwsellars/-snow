@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>+Snow (BRI / SOL / SNB)</title>
+  <title>+Snow (BRI / SOL / SNB / SWS)</title>
   <style>
     :root{
       --bg:#0b1220; --text:#e8eefc; --muted:#a9b6d3;
@@ -37,8 +37,7 @@
       font-size:13px;
       cursor:pointer;
     }
-
-    main{ padding:14px; max-width: 820px; margin:0 auto; }
+    main{ padding:14px; max-width: 860px; margin:0 auto; }
     .notice{
       border:1px solid var(--border);
       background: rgba(255,255,255,0.04);
@@ -61,7 +60,6 @@
       font-size:13px;
       line-height:1.35;
     }
-
     .days{ display:grid; grid-template-columns: 1fr; gap:12px; }
     .dayCard{
       border:1px solid var(--border);
@@ -77,17 +75,19 @@
     }
     .dayTitle{ font-size:16px; font-weight:850; letter-spacing:0.2px; }
     .daySub{ color:var(--muted); font-size:12px; }
-
     table{ width:100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
     th, td{ padding: 10px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 13px; }
     thead th{ color:var(--muted); font-weight:850; font-size:12px; }
     tbody tr:last-child td{ border-bottom:none; }
-    .metric{ width: 60px; color:var(--muted); font-weight:850; letter-spacing:0.2px; }
+    .metric{ width: 70px; color:var(--muted); font-weight:850; letter-spacing:0.2px; }
     .center{ text-align:center; }
+
+    /* When you add more resorts, table can overflow on small screens—allow horizontal scroll */
+    .tableWrap{ overflow-x:auto; -webkit-overflow-scrolling: touch; }
 
     @media (max-width: 360px){
       th, td{ padding: 9px 6px; font-size:12px; }
-      .metric{ width: 54px; }
+      .metric{ width: 64px; }
     }
   </style>
 </head>
@@ -103,7 +103,11 @@
 
   <main>
     <div class="notice">
-      High/Low Temp, Snow Forecast and Wind Speed for today and the next 4 days at Brighton, Solitude and Snowbird.  Wind and temp is from 7AM to 7PM and Snow is full day fall in inches. 
+      High/Low Temp, Snow Forecast and Wind Speed for today and the next 4 days at Brighton (BRI), Solitude (SOL), Snowbird (SNB), and Snowshoe WV (SWS).
+      Wind and temp are from 7AM to 7PM local time. Snow is full-day snowfall in inches.
+      <div style="margin-top:6px;">
+        Data: Open‑Meteo (no key).
+      </div>
     </div>
 
     <div id="error" class="error"></div>
@@ -112,14 +116,14 @@
   </main>
 
 <script>
-  const TZ = "America/Denver";
   const OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast";
 
-  // Approx base-area coordinates; adjust if you want summit points.
+  // Each resort has its own timezone so 7AM–7PM is correct in that location.
   const RESORTS = [
-    { code: "BRI", name: "Brighton", lat: 40.6038, lon: -111.5821 },
-    { code: "SOL", name: "Solitude", lat: 40.6207, lon: -111.5916 },
-    { code: "SNB", name: "Snowbird", lat: 40.5829, lon: -111.6556 },
+    { code: "BRI", name: "Brighton", lat: 40.6038, lon: -111.5821, tz: "America/Denver" },
+    { code: "SOL", name: "Solitude", lat: 40.6207, lon: -111.5916, tz: "America/Denver" },
+    { code: "SNB", name: "Snowbird", lat: 40.5829, lon: -111.6556, tz: "America/Denver" },
+    { code: "SWS", name: "Snowshoe", lat: 38.4137, lon: -79.9956, tz: "America/New_York" }
   ];
 
   const cmToIn = (cm) => cm / 2.54;
@@ -146,29 +150,40 @@
     el.textContent = "";
   }
 
-  function ymd(date) {
+  function ymdInTz(date, tz) {
     const parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit"
+      timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit"
     }).formatToParts(date);
     const get = (t) => parts.find(p => p.type === t)?.value;
     return `${get("year")}-${get("month")}-${get("day")}`;
   }
 
-  function hourInTz(date) {
+  function hourInTz(date, tz) {
     return parseInt(new Intl.DateTimeFormat("en-US", {
-      hour: "2-digit", hour12: false, timeZone: TZ
+      hour: "2-digit", hour12: false, timeZone: tz
     }).format(date), 10);
   }
 
   function dayLabel(date) {
-    return new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: TZ }).format(date);
+    // Label is just day-of-week in the user's current locale/timezone
+    // (If you prefer a specific TZ, we can pin it.)
+    return new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(date);
+  }
+
+  function build5DayKeysByTz(tz) {
+    const now = new Date();
+    const keys = [];
+    for (let i = 0; i < 5; i++) {
+      keys.push(ymdInTz(new Date(now.getTime() + i*86400000), tz));
+    }
+    return keys;
   }
 
   async function fetchOpenMeteo(resort) {
     const url = new URL(OPEN_METEO_URL);
     url.searchParams.set("latitude", resort.lat);
     url.searchParams.set("longitude", resort.lon);
-    url.searchParams.set("timezone", TZ);
+    url.searchParams.set("timezone", resort.tz);
     url.searchParams.set("temperature_unit", "fahrenheit");
     url.searchParams.set("windspeed_unit", "mph");
     url.searchParams.set("hourly", "temperature_2m,windspeed_10m,snowfall");
@@ -180,28 +195,21 @@
     return r.json();
   }
 
-  function build5DayKeys() {
-    const now = new Date();
-    const keys = [];
-    for (let i = 0; i < 5; i++) keys.push(ymd(new Date(now.getTime() + i*86400000)));
-    return keys;
-  }
-
-  function buildSummariesFromOpenMeteo(resp) {
-    const dayKeys = build5DayKeys();
+  function buildSummariesFromOpenMeteo(resp, resortTz) {
+    const dayKeys = build5DayKeysByTz(resortTz);
 
     const times = resp.hourly?.time || [];
     const temps = resp.hourly?.temperature_2m || [];
     const winds = resp.hourly?.windspeed_10m || [];
 
-    // Bucket 7..19 for WS/H/Low
+    // Bucket 7..19 for Wind/Temp window
     const bucket = new Map(); // dayKey -> {wind:[], temp:[]}
     for (let i = 0; i < times.length; i++) {
-      const dt = new Date(times[i]); // ISO local time since timezone=America/Denver
-      const key = ymd(dt);
+      const dt = new Date(times[i]); // ISO local time since timezone=resortTz in API call
+      const key = ymdInTz(dt, resortTz);
       if (!dayKeys.includes(key)) continue;
 
-      const hr = hourInTz(dt);
+      const hr = hourInTz(dt, resortTz);
       if (hr < 7 || hr > 19) continue;
 
       if (!bucket.has(key)) bucket.set(key, { wind: [], temp: [] });
@@ -214,8 +222,8 @@
     const dailySnowSumCm = resp.daily?.snowfall_sum || [];
     const snowByDay = new Map();
     for (let i = 0; i < dailyTimes.length; i++) {
-      const dt = new Date(dailyTimes[i] + "T12:00:00");
-      const key = ymd(dt);
+      const dt = new Date(dailyTimes[i] + "T12:00:00"); // representative midday
+      const key = ymdInTz(dt, resortTz);
       if (!dayKeys.includes(key)) continue;
       snowByDay.set(key, cmToIn(dailySnowSumCm[i] ?? 0));
     }
@@ -230,63 +238,43 @@
       const sIn = snowByDay.get(key) ?? 0;
       summaries[key] = { ws: roundInt(wsAvg), h: roundInt(hi), low: roundInt(lo), sIn };
     }
-    return summaries;
+    return { dayKeys, summaries };
   }
 
-  function renderDayCard(dayKey, dayIdx, perResortByDay) {
-    const now = new Date();
-    // Use midday to avoid DST/timezone edge weirdness
-    const rep = new Date(now.getTime() + dayIdx*86400000 + 12*3600000);
-    const label = dayLabel(rep);
+  function renderDayCard(dayIdx, globalLabel, perResortByIdx) {
+    // perResortByIdx: { CODE: { ws,h,low,sIn } }
+    const headerCells = RESORTS.map(r => `<th class="center">${r.code}</th>`).join("");
 
-    const get = (code) => perResortByDay[code]?.[dayKey] || { ws: 0, h: 0, low: 0, sIn: 0 };
+    const getVal = (code, field) => (perResortByIdx[code]?.[field] ?? 0);
 
-    const bri = get("BRI"), sol = get("SOL"), snb = get("SNB");
+    const row = (metricLabel, valueHtmlForCode) => {
+      const cells = RESORTS.map(r => `<td class="center">${valueHtmlForCode(r.code)}</td>`).join("");
+      return `<tr><td class="metric">${metricLabel}</td>${cells}</tr>`;
+    };
 
     return `
       <section class="dayCard">
         <div class="dayHeader">
-          <div class="dayTitle">${label}</div>
+          <div class="dayTitle">${globalLabel}</div>
           <div class="daySub">${dayIdx === 0 ? "Today" : (dayIdx === 1 ? "Tomorrow" : "")}</div>
         </div>
 
-        <table>
-          <thead>
-            <tr>
-              <th class="metric"></th>
-              <th class="center">BRI</th>
-              <th class="center">SOL</th>
-              <th class="center">SNB</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            <tr>
-              <td class="metric">High</td>
-              <td class="center">${bri.h}&deg;</td>
-              <td class="center">${sol.h}&deg;</td>
-              <td class="center">${snb.h}&deg;</td>
-            </tr>
-            <tr>
-              <td class="metric">Low</td>
-              <td class="center">${bri.low}&deg;</td>
-              <td class="center">${sol.low}&deg;</td>
-              <td class="center">${snb.low}&deg;</td>
-            </tr>
-            <tr>
-              <td class="metric">Snow</td>
-              <td class="center">${fmt1(bri.sIn)} in</td>
-              <td class="center">${fmt1(sol.sIn)} in</td>
-              <td class="center">${fmt1(snb.sIn)} in</td>
-            </tr>
-            <tr>
-              <td class="metric">Wind</td>
-              <td class="center">${bri.ws} mph</td>
-              <td class="center">${sol.ws} mph</td>
-              <td class="center">${snb.ws} mph</td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="tableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th class="metric"></th>
+                ${headerCells}
+              </tr>
+            </thead>
+            <tbody>
+              ${row("High", (c) => `${Math.round(getVal(c,"h"))}&deg;`)}
+              ${row("Low",  (c) => `${Math.round(getVal(c,"low"))}&deg;`)}
+              ${row("Snow", (c) => `${fmt1(getVal(c,"sIn"))} in`)}
+              ${row("Wind", (c) => `${Math.round(getVal(c,"ws"))} mph`)}
+            </tbody>
+          </table>
+        </div>
       </section>
     `;
   }
@@ -300,17 +288,30 @@
     daysEl.innerHTML = "";
 
     try {
-      const results = await Promise.all(
+      // Fetch each resort independently (timezone-specific)
+      const fetched = await Promise.all(
         RESORTS.map(async (r) => {
           const resp = await fetchOpenMeteo(r);
-          return { code: r.code, summariesByDay: buildSummariesFromOpenMeteo(resp) };
+          const built = buildSummariesFromOpenMeteo(resp, r.tz);
+          return { code: r.code, tz: r.tz, dayKeys: built.dayKeys, summaries: built.summaries };
         })
       );
 
-      const perResortByDay = Object.fromEntries(results.map(x => [x.code, x.summariesByDay]));
-      const dayKeys = build5DayKeys();
+      // Build 5 day cards by index (0..4). This aligns "today + next 4" per resort.
+      // Note: Resorts in different timezones can technically have different "today" dates near midnight.
+      // For typical usage, this index alignment is what you want.
+      const dayLabels = Array.from({length: 5}, (_, i) => dayLabel(new Date(Date.now() + i*86400000)));
 
-      daysEl.innerHTML = dayKeys.map((key, idx) => renderDayCard(key, idx, perResortByDay)).join("");
+      const cardsHtml = Array.from({length: 5}, (_, dayIdx) => {
+        const perResortByIdx = {};
+        for (const r of fetched) {
+          const dayKeyForResort = r.dayKeys[dayIdx];
+          perResortByIdx[r.code] = r.summaries[dayKeyForResort] || { ws:0, h:0, low:0, sIn:0 };
+        }
+        return renderDayCard(dayIdx, dayLabels[dayIdx], perResortByIdx);
+      }).join("");
+
+      daysEl.innerHTML = cardsHtml;
       loadingEl.textContent = "";
       setUpdated();
     } catch (e) {
